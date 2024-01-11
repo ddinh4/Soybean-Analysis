@@ -1,0 +1,183 @@
+---
+title: "Soybean Data Grid Comparison"
+author: "Dina Dinh"
+date: "2023-12-18"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(easypackages)
+libraries("tidyverse","boot","randomForest","psych","AUC","MASS","car",
+          "viridis","caret","ggplot2", "corrplot", "gridExtra", "mlbench", "neuralnet",
+          "rpart")
+```
+
+Using the dataset with most outliers removed in the response variable
+```{r, echo=FALSE}
+df1 = read.csv("C:/Users/ddinh4/Documents/Fall 2023/EXST 7142/EXST 7142 Final Project/Data/YY_varying_withGrid_withoutSurrounding_06_25.csv")
+df1 <- df1[, -which(names(df1) %in% c("fid", "field_1","X", "x", "y", "Application_4_N_rate", "Application_5_N_rate"))]
+df1 <- df1 %>%
+    drop_na()  %>% 
+    mutate(GridId = as.factor(GridId)) %>%
+    mutate(row = as.numeric(row)) %>%
+    mutate(col = as.numeric(col)) 
+```
+
+```{r, echo=FALSE}
+a = 0.005*max(df1$VRYieldVOl)
+k <- seq(from = 20, to = 90, by = 1)
+h <- length(k)
+p.value <- vector(mode = "numeric", length = h)
+for (i in 1:h) {
+  set.seed(1)
+  subset_condition <- df1$VRYieldVOl >= k[i] * a
+  df2 <- df1[subset_condition, ]
+  p.value[i] <- shapiro.test(df2$VRYieldVOl)$p.value
+}
+optimal.k <- k[which.max(p.value)]
+#plot(k, p.value, type = "b", xlab = "Number of k", ylab = "p-value")
+```
+
+```{r, echo=FALSE, warning=FALSE}
+df1 = df1[df1$VRYieldVOl >= optimal.k*a,]
+shapiro.test(df1$VRYieldVOl)
+ggplot(df1, aes(x = VRYieldVOl)) +
+  geom_histogram(binwidth = 4, aes(y = ..count..)) +
+  labs(x = "Yield", y = "Frequency")
+```
+
+```{r, echo=FALSE}
+gridid_subsets <- split(df1, df1$GridId)
+```
+```{r, echo=F}
+gridid.08 = gridid_subsets$`8`
+gridid.09 = gridid_subsets$`9`
+gridid.10 = gridid_subsets$`10`
+gridid.11 = gridid_subsets$`11`
+gridid.19 = gridid_subsets$`19`
+gridid.20 = gridid_subsets$`20`
+gridid.21 = gridid_subsets$`21`
+gridid.22 = gridid_subsets$`22`
+gridid.30 = gridid_subsets$`30`
+gridid.31 = gridid_subsets$`31`
+gridid.32 = gridid_subsets$`32`
+gridid.33 = gridid_subsets$`33`
+gridid.41 = gridid_subsets$`41`
+gridid.42 = gridid_subsets$`42`
+gridid.43 = gridid_subsets$`43`
+gridid.44 = gridid_subsets$`44`
+gridid.52 = gridid_subsets$`52`
+gridid.53 = gridid_subsets$`53`
+gridid.54 = gridid_subsets$`54`
+gridid.55 = gridid_subsets$`55`
+```
+
+```{r, echo=FALSE}
+sum.grid08 = describe(gridid.08); variable_names <- rownames(sum.grid08);
+  result_grid08 <- data.frame(Variable = variable_names, Median = sum.grid08$median)
+sum.grid09 = describe(gridid.09); variable_names <- rownames(sum.grid09);
+  result_grid09 <- data.frame(Variable = variable_names, Median = sum.grid09$median)
+sum.grid10 = describe(gridid.10); variable_names <- rownames(sum.grid10);
+  result_grid10 <- data.frame(Variable = variable_names, Median = sum.grid10$median)
+sum.grid11 = describe(gridid.11); variable_names <- rownames(sum.grid11);
+  result_grid11 <- data.frame(Variable = variable_names, Median = sum.grid11$median)
+sum.grid19 = describe(gridid.19); variable_names <- rownames(sum.grid19);
+  result_grid19 <- data.frame(Variable = variable_names, Median = sum.grid19$median)
+sum.grid20 = describe(gridid.20); variable_names <- rownames(sum.grid20);
+  result_grid20 <- data.frame(Variable = variable_names, Median = sum.grid20$median)
+sum.grid21 = describe(gridid.21); variable_names <- rownames(sum.grid21);
+  result_grid21 <- data.frame(Variable = variable_names, Median = sum.grid21$median)
+sum.grid22 = describe(gridid.22); variable_names <- rownames(sum.grid22);
+  result_grid22 <- data.frame(Variable = variable_names, Median = sum.grid22$median)
+sum.grid30 = describe(gridid.30); variable_names <- rownames(sum.grid30);
+  result_grid30 <- data.frame(Variable = variable_names, Median = sum.grid30$median)
+sum.grid31 = describe(gridid.31); variable_names <- rownames(sum.grid31);
+  result_grid31 <- data.frame(Variable = variable_names, Median = sum.grid31$median)
+sum.grid32 = describe(gridid.32); variable_names <- rownames(sum.grid32);
+  result_grid32 <- data.frame(Variable = variable_names, Median = sum.grid32$median)
+sum.grid33 = describe(gridid.33); variable_names <- rownames(sum.grid33);
+  result_grid33 <- data.frame(Variable = variable_names, Median = sum.grid33$median)
+sum.grid41 = describe(gridid.41); variable_names <- rownames(sum.grid41);
+  result_grid41 <- data.frame(Variable = variable_names, Median = sum.grid41$median)
+sum.grid42 = describe(gridid.42); variable_names <- rownames(sum.grid42);
+  result_grid42 <- data.frame(Variable = variable_names, Median = sum.grid42$median)
+sum.grid43 = describe(gridid.43); variable_names <- rownames(sum.grid43);
+  result_grid43 <- data.frame(Variable = variable_names, Median = sum.grid43$median)
+sum.grid44 = describe(gridid.44); variable_names <- rownames(sum.grid44);
+  result_grid44 <- data.frame(Variable = variable_names, Median = sum.grid44$median)
+sum.grid52 = describe(gridid.52); variable_names <- rownames(sum.grid52);
+  result_grid52 <- data.frame(Variable = variable_names, Median = sum.grid52$median)
+sum.grid53 = describe(gridid.53); variable_names <- rownames(sum.grid53);
+  result_grid53 <- data.frame(Variable = variable_names, Median = sum.grid53$median)
+sum.grid54 = describe(gridid.54); variable_names <- rownames(sum.grid54);
+  result_grid54 <- data.frame(Variable = variable_names, Median = sum.grid54$median)
+sum.grid55 = describe(gridid.55); variable_names <- rownames(sum.grid55);
+  result_grid55 <- data.frame(Variable = variable_names, Median = sum.grid55$median)
+```
+
+```{r, echo=FALSE}
+df3 = cbind(result_grid08,result_grid09[,2],result_grid10[,2],result_grid11[,2],result_grid19[,2],result_grid20[,2],result_grid21[,2],result_grid22[,2],result_grid30[,2],result_grid31[,2],result_grid32[,2],result_grid33[,2],result_grid41[,2],result_grid42[,2],result_grid43[,2],result_grid44[,2],result_grid52[,2],result_grid53[,2],result_grid54[,2],result_grid55[,2])
+
+write.csv(df3, "C:/Users/ddinh4/Documents/Fall 2023/EXST 7142/EXST 7142 Final Project/Data/Grid_Median_Comparison.csv", row.names = F)
+```
+
+# Discovering Any Patterns in the Dataset
+
+![Medians of each variable for each grid color-coded by columns](C:/Users/ddinh4/Documents/Fall 2023/EXST 7142/EXST 7142 Final Project/Data/Medians_Grid.png)
+
+From previous discoveries, GridId and col are the two most important variables for predictions in Random Forest followed by ksat and row. We can see that ksat around 0.5 had the highest yield as seen in grids 19 and 20. However, ksat under 0.30 had the lowest yields seen in grids 32 and 33. Grids with negative relative elevation are consistently better than grids with positive relative elevation with yields greater than 80 for those grids. This makes me believe that the soybeans in this dataset prefer lower elevation which causes water to pool in these areas. Maybe these soybeans require more water than given.
+
+Since the medians of each variables are not very different among the grids, this makes me believe there's an unobserved underlying effect causing high yields in some grids. However, location is proven to be important for predicting crop yield.
+
+# Linear Regression (LR)
+
+## LR of Full Model
+
+```{r, echo=FALSE}
+column_index <- which(names(df1) == "VRYieldVOl")
+# Move the column to be the first column
+df1 <- df1[, c(column_index, setdiff(1:ncol(df1), column_index))]
+N = nrow(df1)
+
+set.seed(123)
+index <- sample(1:N, size = N*.8, replace = F)
+train_x <- df1[index, 2:17]
+test_x <- df1[-index, 2:17]
+train_y <- df1[index, 1]
+test_y <- df1[-index, 1]
+train <- df1[index,]
+test <- df1[-index,]
+
+lm.fit = lm(VRYieldVOl~., data = train)
+summary(lm.fit)
+pred1 = predict(lm.fit, newdata = test)
+cor1 = cor(pred1, test$VRYieldVOl)
+r.square1 = 1-sum((test$VRYieldVOl-pred1)^2)/sum((test$VRYieldVOl-mean(test$VRYieldVOl))^2)
+```
+
+The $R^2$ value of the full model is `r r.square1` and the correlation between the predicted and actual value of the test set is `r cor1` which is not a very high accuracy. (I ran the LR without removing the outliers in the response variable and the results were cor = 0.58, and $R^2$ = 0.34. The results were the same for the reduced model. Therefore, removing the outliers improved the model.)
+
+## LR of Reduced Model
+
+```{r, echo=FALSE}
+lm.fit2 = stepAIC(lm.fit, direction = "both")
+pred2 = predict(lm.fit2, newdata = test)
+
+cor2 = cor(pred2, test$VRYieldVOl)
+r.square2 = 1-sum((test$VRYieldVOl-pred2)^2)/sum((test$VRYieldVOl-mean(test$VRYieldVOl))^2)
+par(mfrow=c(2,2))
+plot(lm.fit2)
+```
+
+The $R^2$ value of the reduced model is `r r.square2`, and the correlation between the predicted and actual value of the test set is `r cor2`. The results of the reduced model is almost the same as the full model.
+
+In the diagnostic plots, we can check some assumptions for the linear regression such as homogeneous variance seen in the "Residuals vs Fitted" plot and normality of residuals seen in the Q-Q plot. We can see that the assumptions are met.
+
+
+
+
+

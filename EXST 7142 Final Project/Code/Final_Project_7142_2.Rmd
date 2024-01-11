@@ -1,0 +1,1070 @@
+---
+title: "Final Project - EXST 7142"
+author: "Dina Dinh"
+date: '2023-11-22'
+output:
+  pdf_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+In the fast-evolving landscape of agriculture, a technological transformation is underway, propelled by the integration of Machine Learning (ML) and Artificial Intelligence (AI). Termed Digital Agriculture, this innovative approach leverages data analytics, automation, and intelligent decision-making to revolutionize traditional farming practices. By assimilating vast datasets from sensors, satellites, and IoT devices, ML and AI empower farmers with unprecedented insights, enabling precise management of resources, predictive analytics for crop health, and the implementation of smart, efficient farming practices. The objective of this analysis is to examine the correlation between the explanatory variables and the response and assessing whether precise predictions can be made using these explanatory factors. This will give a better understanding of how these factors affect crop yield. 
+
+# Data Description
+
+In this section, we will describe the variables used in the soybeans dataset provided by Ag Analytics. The variables, "fid" and "field_1," have been excluded as they serve as non-informative identifiers in this analysis. The variables "application_4_N_rate" and "application_5_N_rate" were also removed due to no values were collected in this dataset for those variables.  
+
+1. GridId: Identification numbers given by the program QGIS of the 20 different grids created on the given field (see Figure 1). 
+
+2. x: data point’s longitude coordinate using the WGS-84 coordinate reference system (CRS) with precision of 1.11 x 10-6 m (± 4 cm).
+
+3. y: data point’s latitude coordinate using the WGS-84 coordinate reference system (CRS) with precision of 1.11 x 10-6 m (± 4 cm).
+
+4. VRYieldVOI: the response variable, which stores volumetric yield. The units are user-defined and are usually either kg/ha, lbs/ac, or bushels/ac.
+
+5. Row & Column: row and column of the data point’s location within Ag Analytic’s 10ft x 10ft data point sample grid for a given field (see Figure 2). Row and col identifiers are 0-indexed (i.e. column numbering starts with 0 instead of 1). The Values are calculated from raw data using proprietary algorithms. Data are of the integer data type and should be treated as being categorical in most cases.
+
+6. Relative_Elevation1: decimal value representing the standardized elevation value (z-score) of a given data point relative to the mean elevation of the field. Relative elevation can affect water and nutrient status of a given area due to how water and nutrients flow to and from a given area due to elevation differences. Values are positive or negative numeric with 9 decimals of precision.
+
+7. Slope1: holds the maximum slope value present in the 10ft x 10ft cell represented by a given data point. Slope can affect water and nutrient status of a given point due to how water and nutrients flow over that area due to the degree of slope.
+
+8. TRI1: terrain ruggedness index value. The amount of hilliness and slope amount present within a given cell. Terrain ruggedness can affect water and nutrients flow.
+
+9. TPI1: Topographic position index which is the difference of target cell to the average cells around it.
+
+10. Elevation1: absolute elevation value of a given point. Generally, meters above sea level (ASL).
+
+13. Application_<#>_<N_Rate: these fields hold the application rates of nitrogen (N) for each record. The number (#) is equivalent to the crop's growth stage.Nitrogen application rate, in conjunction with the percentage of N applied is very strongly correlated to plant growth and yield in most grain crops. Units are user-defined and are generally gallons/ac, lbs/ac, or kg/ha.
+
+12.	ph_mean_30_60: mean soil pH value present between 30cm and 60 cm below the surface for a given 10ft x 10ft cell. pH is the -log of hydrogen ion activity present in a sample. Values below 7 are acidic and values above 7 are alkaline. Soil pH is generally between 4 and 10, except in extreme cases. Soil pH affects nutrient availability to plants. Optimum ranges are between 5.5 and 6.5 for most agronomic crops. A magnet is used for variable measurements that are underground.
+
+13. Clay_mean_30, 60, silt_mean_30_60, and sand_mean_30_60: denote the percentages of clay, silt, and sand, respectively, present in the soil between 30cm and 60cm for a given 10ft x 10ft cell. The relative percentages of each affect the soil’s texture, nutrient holding capacity, and other chemical and physical soil properties.
+
+14.	ksat_mean_30_60: mean saturated hydraulic conductivity of soil between 30cm and 60cm for a given 10ft x 10ft cell record. This value indicates how easily water can percolate through soil once the soil is fully saturated. Higher values indicate greater flow rates, meaning that the soil allows water to flow through it more freely than areas of soil having lower ksat values. Soil’s hydraulic conductivity can influence water and nutrient availability to plants by influencing how long water and nutrients are present in a given area and how quickly mobile nutrients can leach away. Soils having higher percentages of clay generally have lower ksat values where soils having higher percentages of sand generally have higher ksat values.
+
+15.	om_mean_30_60: mean organic matter (OM) percentage of the soil for a given 10m x 10m cell record between 30cm and 60cm. OM generally improves soil texture and soil nutrient and water holding capacity, and nutrient availability to plants.
+
+
+# Packages Needed for the Analysis
+```{r, message=FALSE, warning=FALSE}
+library(easypackages)
+libraries("tidyverse","boot","randomForest","psych","AUC","MASS","car",
+          "viridis","caret","ggplot2", "corrplot", "gridExtra", "mlbench", "neuralnet")
+```
+
+# Importing and Cleaning the Data
+
+First, I removed the variables that aren't need for the analysis. Then, I made the appropriate variables categorical. Since there are little missing values in the large data set, those 20 observations missing values were removed. Assuming "x" and "y" variables were used to determine row and column since the levels of the respective pair were the same, "x" and "y" were removed from the analysis. 
+```{r}
+df1 = read.csv("C:/Users/ddinh4/Documents/EXST 7142/EXST 7142 Final Project/Data/YY_varying_withGrid_withoutSurrounding_06_25.csv")
+df1 <- df1[, -which(names(df1) %in% c("fid", "field_1","X", "x", "y", "Application_4_N_rate", "Application_5_N_rate"))]
+df1 <- df1 %>%
+    drop_na()  %>% 
+    mutate(GridId = as.factor(GridId)) %>%
+    mutate(row = as.numeric(row)) %>%
+    mutate(col = as.numeric(col)) 
+col_df = df1[df1$col <= 45,]
+col_df = col_df[col_df$col >= 25,]
+```
+## Splitting the Dataset into 20 Subsets Based on GridId
+
+```{r}
+gridid_subsets <- split(df1, df1$GridId)
+```
+```{r, echo=F}
+gridid.08 = gridid_subsets$`8`
+gridid.09 = gridid_subsets$`9`
+gridid.10 = gridid_subsets$`10`
+gridid.11 = gridid_subsets$`11`
+gridid.19 = gridid_subsets$`19`
+gridid.20 = gridid_subsets$`20`
+gridid.21 = gridid_subsets$`21`
+gridid.22 = gridid_subsets$`22`
+gridid.30 = gridid_subsets$`30`
+gridid.31 = gridid_subsets$`31`
+gridid.32 = gridid_subsets$`32`
+gridid.33 = gridid_subsets$`33`
+gridid.41 = gridid_subsets$`41`
+gridid.42 = gridid_subsets$`42`
+gridid.43 = gridid_subsets$`43`
+gridid.44 = gridid_subsets$`44`
+gridid.52 = gridid_subsets$`52`
+gridid.53 = gridid_subsets$`53`
+gridid.54 = gridid_subsets$`54`
+gridid.55 = gridid_subsets$`55`
+```
+
+
+# Analyzing the Data
+
+## Summary Statistics of the Dataset
+
+Here is the summary of the data. We can see there are a few variables that are highly skewed like Slope1.  
+```{r}
+sum.df1 = describe(df1)
+knitr::kable(sum.df1, caption = "Summary Table", digits = 2)
+```
+
+## Visualizing the Correlation
+
+```{r}
+corr.matrix = cor(df1[,-c(1,3,4)])
+corrplot(corr.matrix, method = "color", type = "upper")
+```
+We can see that there are many variables that are highly correlated both positively and negatively.
+
+## Visualizing Outliers
+
+Here is the boxplot of each variable. We can see that VRYieldVol have many outliers.
+```{r}
+par(mfrow = c(1, 1), mar = c(3, 3, 1, 1) + 0.1)
+boxplot(df1)
+```
+
+## Distribution of the Response Variable
+
+```{r}
+ggplot(df1, aes(x = VRYieldVOl)) +
+  geom_histogram(binwidth = 4, aes(y = ..count..)) +
+  labs(x = "Yield", y = "Frequency")
+```
+The measurements almost follows a normal distribution; however, there are many zeroes and low values skewing the data. 
+
+## Scatter Plots of the Numeric Variables vs. Response
+
+### Relative Elevation vs. Yield
+
+```{r}
+ggplot(df1, aes(x = Relative_Elevation1, y = VRYieldVOl)) +
+  geom_point() +
+  labs(title = "Scatter Plot of Relative Elevation and Yield",
+       x = "Relative Elevation",
+       y = "Yield")+
+  theme_classic()
+```
+Based on the scatter plot, areas with higher elevation consistently have higher yield. This makes sense because water tend to pool in areas of lower elevation hindering crop growth.
+
+### Slope vs. Yield
+
+```{r}
+ggplot(df1, aes(x = Slope1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of Slope and Yield",
+       x = "Slope",
+       y = "Yield")+
+  theme_classic()
+```
+Areas with little to no slope produces higher yield.
+
+### Terrain Ruggedness vs Yield
+
+```{r}
+ggplot(df1, aes(x = TRI1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of Terrain Ruggedness and Yield",
+       x = "Terrain Ruggedness",
+       y = "Yield")+
+  theme_classic()
+```
+Areas that have less hills and even grounds produce more yield.
+
+### Topographic Position vs. Yield
+
+```{r}
+ggplot(df1, aes(x = TPI1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of Topographic Position and Yield",
+       x = "Topographic Position",
+       y = "Yield")+
+  theme_classic()
+```
+There is a slightly negative relationship between topographic position and yield.
+
+### Elevation vs. Yield
+
+```{r}
+ggplot(df1, aes(x = Elevation1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of Elevation and Yield",
+       x = "Elevation",
+       y = "Yield")+
+  theme_classic()
+```
+Areas that are 53m to 55m above sea level produces the highest yield. 
+
+### Application 7 Nitrogen Rate vs. Yield
+
+```{r}
+ggplot(df1, aes(x = Application_7_N_rate, y = VRYieldVOl)) +
+  geom_point() +
+  labs(title = "Scatter Plot of Application 7 and Yield",
+       x = "Nitrogen rate",
+       y = "Yield")+
+  theme_classic()
+```
+No clear relationship can be seen.
+
+### Application 10 Nitrogen Rate vs. Yield
+
+```{r}
+ggplot(df1, aes(x = Application_10_N_rate, y = VRYieldVOl)) +
+  geom_point() +
+  labs(title = "Scatter Plot of Application 10 and Yield",
+       x = "Nitrogen rate",
+       y = "Yield")+
+  theme_classic()
+```
+Again, no clear relationship can be seen.
+
+### pH Mean vs. Yield
+
+```{r}
+ggplot(df1, aes(x = ph_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of pH Mean and Yield",
+       x = "pH",
+       y = "Yield")+
+  theme_classic()
+```
+More basic pH's produce a bit higher yield.
+
+### Clay Mean vs. Yield
+
+```{r}
+ggplot(df1, aes(x = clay_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of Clay Mean and Yield",
+       x = "Clay Mean",
+       y = "Yield")+
+  theme_classic()
+```
+Clay means around 42.5 produces the highest yield.
+
+### Silt Means vs. Yield
+
+```{r}
+ggplot(df1, aes(x = silt_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of Silt Mean and Yield",
+       x = "Silt",
+       y = "Yield")+
+  theme_classic()
+```
+Silt means between 24 and 25 have consistently higher yields.
+
+### Sand Mean vs. Yield
+
+```{r}
+ggplot(df1, aes(x = sand_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatter Plot of Sand Mean and Yield",
+       x = "Sand",
+       y = "Yield")+
+  theme_classic()
+```
+Sand mean around 28 seem to produce the most yield.
+
+### Hydraulic Conductivity vs. Yield
+
+```{r}
+ggplot(df1, aes(x = ksat_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  labs(title = "Scatter Plot of Hydraulic Conductivity and Yield",
+       x = "ksat",
+       y = "Yield")+
+  theme_classic()
+```
+It is difficult to determine from the scatter plot, but it seems that lower conductivity around 0.5 consistently produces more yield.
+
+### Organic Matter (OM) vs. Yield
+
+```{r}
+ggplot(df1, aes(x = om_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  labs(title = "Scatter Plot of OM and Yield",
+       x = "OM",
+       y = "Yield")+
+  theme_classic()
+```
+Larger OM means around 1.22 tend to consistently produce higher yield based on the scatter plot.
+
+### Yield Based on GridId
+
+```{r}
+ggplot(df1, aes(x = VRYieldVOl)) +
+  geom_histogram(binwidth = 3, aes(y = ..density..)) +
+  facet_wrap(~GridId, scales = "free") +
+  labs(x = "Yield", y = "Frequency") +
+  theme_classic()
+```
+We can see that the area of the grid influences yield. The grids along the left and right of the field tend to have more zero yields. Grids 8-11 are the left border and Grids 52-55 are the right border. Grids 8, 19, 30, 41, and 52 create the top border. Grids 11, 22, 33, 44, and 55 create the bottom border. 
+
+# Comparing the Different Grids
+
+## Summary Statistics of each Grid
+
+All of the grids in the 2nd column of the field had the largest yield with each mean being over 90. Grid 21 having the highest yield. The lowest average yield of a grid came from Grid 52 (see Table 2 - Table 21). 
+
+# Comparing Grid 21 to Grid 52
+
+## Relative Elevation vs. Yield
+
+We can see a clearer relationship between the response and relative elevation in Grid 21. It seems like areas of lower relative elevation produce higher yield. This might be due to soybeans needing more water for proper growth.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = Relative_Elevation1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "Relative Elevation",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = Relative_Elevation1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "Relative Elevation",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+## Slope vs. Yield
+
+There are many data points with zero yield in Grid 52, whereas in Grid 21, a negative correlation can be seen.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = Slope1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "Slope",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = Slope1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "Slope",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Terrain Ruggedness vs. Yield
+
+The results are similar to the previous plots.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = TRI1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "TRI",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = TRI1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "TRI",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Topographic Position vs. Yield
+
+There's a slight positive correlation in Grid 52, but overall the relationship between the response and TPI is hard to distinguish.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = TPI1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "TPI",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = TPI1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "TPI",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Elevation vs. Yield
+
+The results are similar to the relative elevation plots
+```{r}
+plot1 = ggplot(gridid.21, aes(x = Elevation1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "Elevation",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = Elevation1, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "Elevation",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+## Application 7 Nitrogen Rate vs. Yield
+
+No clear relationship can be see from either grids.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = Application_7_N_rate, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "7-Nitrogen",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = Application_7_N_rate, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "7-Nitrogen",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Application 10 Nitrogen Rate vs. Yield
+
+No clear relationship can be see from either grids.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = Application_10_N_rate, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "10-Nitrogen",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = Application_10_N_rate, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "10-Nitrogen",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## pH Mean vs. Yield
+
+In Grid 21, lower pH's consistently give high yields.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = ph_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "pH",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = ph_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "pH",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Clay Mean vs. Yield
+
+In Grid 21, lower clay means consistently give high yields.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = clay_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "Clay",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = clay_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "Clay",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Silt Mean vs. Yield
+
+In Grid 21, lower silt means consistently give high yields.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = silt_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "Silt",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = silt_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "Silt",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Sand Mean vs. Yield
+
+In Grid 21, higher sand means consistently give high yields.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = sand_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "Sand",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = sand_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "Sand",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## Ksat Mean vs. Yield
+
+In Grid 21, higher ksat means consistently give high yields. Grid 52 shows many high yields with lower ksat.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = ksat_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "ksat",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = ksat_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "ksat",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+## OM Mean vs. Yield
+
+In Grid 21, lower OM means consistently give high yields.
+```{r}
+plot1 = ggplot(gridid.21, aes(x = om_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 21",
+       x = "OM",
+       y = "Yield")+
+  theme_classic()
+plot2 = ggplot(gridid.52, aes(x = om_mean_30_60, y = VRYieldVOl)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Grid 52",
+       x = "OM",
+       y = "Yield")+
+  theme_classic()
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+# Prediction Model
+
+## Random Forest (RF)
+
+Since this dataset is relatively large and has many explanatory variables, I believe using RF is one of the more appropriate models for prediction. However, since RF cannot handle categorical predictors with more than 53 categories, we must reduce the levels in variable "col" by merging.
+
+This is the levels before merging.
+```{r, echo=FALSE}
+table(df1$col)
+```
+
+This is the levels after merging.
+```{r, echo=FALSE}
+
+for (i in seq(2, 118, by = 3)) {
+  old_values <- c(i, i + 2)
+  new_value <- i + 1
+  
+  # Update values in df1$col
+  df1$col[df1$col %in% old_values] <- new_value
+}
+
+# Check the result
+table(df1$col)
+
+```
+
+```{r, echo=FALSE}
+df1$col <- droplevels(df1$col)
+```
+
+### Optimizing the RF
+
+```{r, echo=F}
+column_index <- which(names(df1) == "VRYieldVOl")
+# Move the column to be the first column
+df1 <- df1[, c(column_index, setdiff(1:ncol(df1), column_index))]
+N = nrow(df1)
+set.seed(123)
+index <- sample(1:N, size = N*.8, replace = F)
+train_x <- df1[index, 2:17]
+test_x <- df1[-index, 2:17]
+train_y <- df1[index, 1]
+test_y <- df1[-index, 1]
+train <- df1[index,]
+test <- df1[-index,]
+```
+
+Before optimizing the RF, let's see how well it performs with only the default settings. 
+
+```{r}
+set.seed(123)
+rf_model1 <- randomForest(VRYieldVOl~.,data = train, xtest = test_x,
+                     ytest=test_y, keep.forest = TRUE)
+rf_model1
+```
+We can see that the test MSE is quite high without any optimization.
+
+Let's look at the MSE when using all the trees to predict the train samples.
+```{r}
+pred.train1 = predict(rf_model1, train)
+mean((pred.train1-train_y)^2)
+```
+The MSE is very different and better than the test MSE.
+
+Now let's try to optimize the RF by tuning the hyperparameters and evaluating the models using the MSE on the model predicting the train set.
+
+#### Finding Optimal Number of Trees
+
+```{r}
+trees <- seq(from = 200, to = 1000, by = 100)
+z <- length(trees)
+rf.mse1 <- vector(mode = "numeric", length = z)
+N = nrow(df1)
+for (i in 1:z) {
+  set.seed(123)
+index <- sample(1:N, size = N*.8, replace = F)
+train_x <- df1[index, 2:17]
+test_x <- df1[-index, 2:17]
+train_y <- df1[index, 1]
+test_y <- df1[-index, 1]
+train <- df1[index,]
+test <- df1[-index,]
+  rf_model1 <- randomForest(VRYieldVOl~.,data = train, xtest = test_x,
+                     ytest=test_y,ntree=trees[i], keep.forest = TRUE)
+  pred.train1 = predict(rf_model1, train)
+
+  rf.mse1 [i] <- mean((pred.train1-train_y)^2)
+}
+optimal.ntrees <- trees[which.min(rf.mse1)]
+plot(trees, rf.mse1, type = "b", xlab = "ntrees", ylab = "MSE")
+```
+
+#### Finding Optimal m
+
+We will now find the optimal m using the optimal number of trees based on MSE. As we know, too large m will have high correlation and low bias.
+```{r, warning=FALSE}
+m <- seq(from = 4, to = 20, by = 1)
+h <- length(m)
+rf.mse1 <- vector(mode = "numeric", length = h)
+for (i in 1:h) {
+  set.seed(123)
+index <- sample(1:N, size = N*.8, replace = F)
+train_x <- df1[index, 2:17]
+test_x <- df1[-index, 2:17]
+train_y <- df1[index, 1]
+test_y <- df1[-index, 1]
+train <- df1[index,]
+test <- df1[-index,]
+  rf_model1 <- randomForest(VRYieldVOl~.,data = train, xtest = test_x,
+                     ytest=test_y,mtry = m[i],
+                     ntree=optimal.ntrees, keep.forest = TRUE)
+  pred.train1 = predict(rf_model1, train)
+
+  rf.mse1 [i] <- mean((pred.train1-train_y)^2)
+}
+optimal.m <- m[which.min(rf.mse1)]
+plot(m, rf.mse1, type = "b", xlab = "number of m", ylab = "MSE")
+```
+
+#### Finding Optimal Tree Depth
+
+We will now find the optimal tree depth using the optimal number of trees and optimal m based on MSE. The smaller the node size, the deeper the tree.
+
+```{r}
+depth <- seq(from = 1, to = 50, by = 5)
+d <- length(depth)
+rf.mse1 <- vector(mode = "numeric", length = d)
+for (i in 1:d) {
+  set.seed(123)
+index <- sample(1:N, size = N*.8, replace = F)
+train_x <- df1[index, 2:17]
+test_x <- df1[-index, 2:17]
+train_y <- df1[index, 1]
+test_y <- df1[-index, 1]
+train <- df1[index,]
+test <- df1[-index,]
+  rf_model1 <- randomForest(VRYieldVOl~.,data = train, xtest = test_x,
+                     ytest=test_y, mtry = optimal.m, nodesize = depth[i],
+                     ntree=optimal.ntrees, keep.forest = TRUE)
+  pred.train1 = predict(rf_model1, train)
+
+  rf.mse1 [i] <- mean((pred.train1-train_y)^2)
+}
+optimal.depth <- depth[which.min(rf.mse1)]
+plot(depth, rf.mse1, type = "b", xlab = "Node Size", ylab = "MSE")
+```
+
+### Optimzed RF
+
+```{r}
+n=10
+rf.mse1 <- vector(mode = "numeric", length = n)
+for (i in 1:n) {
+  set.seed(i)
+index <- sample(1:N, size = N*.8, replace = F)
+train_x <- df1[index, 2:17]
+test_x <- df1[-index, 2:17]
+train_y <- df1[index, 1]
+test_y <- df1[-index, 1]
+train <- df1[index,]
+test <- df1[-index,]
+  rf_model1 <- randomForest(VRYieldVOl~.,data = train, xtest = test_x,
+                     ytest=test_y,mtry = optimal.m,nodesize = optimal.depth,
+                     ntree=optimal.ntrees, keep.forest = TRUE)
+  pred.train1 = predict(rf_model1, train)
+
+  rf.mse1 [i] <- mean((pred.train1-train_y)^2)
+}
+```
+
+### Results of Optimized RF
+
+Here is the MSE of all the iterations using the optimized RF.
+```{r}
+results = data.frame(RF_MSE = rf.mse1)
+knitr::kable(results)
+```
+
+
+# Removing Outliers in Response Variable, Yield
+
+The outcome of the Shapiro-Wilk test indicates that, prior to the removal of outliers, the response variable does not pass the normality test, as the p-value is below 0.05.
+```{r, echo=F}
+shapiro.test(df1$VRYieldVOl)
+```
+
+Because the distribution is skewed left, reducing the number of outliers by introducing a lower value threshold incrementally allow the response variable to follow a normal distribution.
+```{r}
+a = 0.005*max(df1$VRYieldVOl)
+k <- seq(from = 20, to = 90, by = 1)
+h <- length(k)
+p.value <- vector(mode = "numeric", length = h)
+for (i in 1:h) {
+  set.seed(1)
+  subset_condition <- df1$VRYieldVOl >= k[i] * a
+  df2 <- df1[subset_condition, ]
+  p.value[i] <- shapiro.test(df2$VRYieldVOl)$p.value
+}
+optimal.k <- k[which.max(p.value)]
+plot(k, p.value, type = "b", xlab = "Number of k", ylab = "p-value")
+```
+
+For the normality test to not be rejected, k = 190. This leaves only 32 observation which is not good, and the normality test does not guarantee the data is normally distributed. Therefore, using the first that there is a significant change in the p-value will help reduce many low value outliers. There's a significant change in the p-value between 40 and 60 as seen in the plot.
+
+Let's see the normality test and distribution of the response variable now after the outliers have been removed.
+```{r}
+df3 = df1[df1$VRYieldVOl >= optimal.k*a,]
+shapiro.test(df3$VRYieldVOl)
+ggplot(df3, aes(x = VRYieldVOl)) +
+  geom_histogram(binwidth = 4, aes(y = ..count..)) +
+  labs(x = "Yield", y = "Frequency")
+```
+The response variable is more symmetrical and not so skewed now.
+
+# Optimized RF on the Reduced Outlier Dataset
+
+```{r}
+n=10
+R = nrow(df3)
+rf.mse2 <- vector(mode = "numeric", length = n)
+for (i in 1:n) {
+  set.seed(i)
+index2 <- sample(1:R, size = R*.8, replace = F)
+train_x2 <- df3[index2, 2:17]
+test_x2 <- df3[-index2, 2:17]
+train_y2 <- df3[index2, 1]
+test_y2 <- df3[-index2, 1]
+train2 <- df3[index2,]
+test2 <- df3[-index2,]
+  rf_model2 <- randomForest(VRYieldVOl~.,data = train2, xtest = test_x2,
+                     ytest=test_y2,mtry = optimal.m,nodesize = optimal.depth,
+                     ntree=optimal.ntrees, keep.forest = TRUE)
+  pred.train2 = predict(rf_model2, train2)
+
+  rf.mse2 [i] <- mean((pred.train2-train_y2)^2)
+}
+```
+
+## Results of Optimized RF on Reduced Outlier Data
+
+Here is the MSE of all the iterations using the optimized RF on the reduced outlier data.
+```{r}
+results2 = data.frame(RF_MSE = rf.mse2)
+knitr::kable(results2)
+```
+The RF prediction model performed significantly better based on MSE when some of the lower bound outliers were removed.
+
+### Variable Importance
+
+```{r}
+varImpPlot(rf_model2, sort = T, main = "Relative Variable Importance")
+```
+Col is most important variable in the prediction model followed by row, then GridId. Location probably plays a big role in predicting yield. This is a bit surprising since the other variables affect the soil and nutrients for the drop.
+
+### Partial Dependency Plot
+
+We can see there's some sort of increasing and decreasing pattern in all the partial dependency plot.
+```{r}
+par(mfrow=c(2,2))
+partialPlot(rf_model2, train2, 'col')
+partialPlot(rf_model2, train2, 'row')
+partialPlot(rf_model2, train2, 'GridId')
+```
+
+# Comparing the Prediction Model for Grid 21 and Grid 52
+
+Let's use the original dataset for this analysis to avoid any data loss since the subsets are much smaller. However, we still must merge the levels in the col variable.
+
+```{r, echo=F}
+gridid_subsets2 <- split(df1, df1$GridId)
+gridid.21.2 = gridid_subsets2$`21`
+gridid.52.2 = gridid_subsets2$`52`
+
+gridid.21.2 = gridid.21.2[,-2]
+gridid.52.2 = gridid.52.2[,-2]
+
+# train set for Grid 21
+G = nrow(gridid.21.2)
+index3 <- sample(1:G, size = G*.8, replace = F)
+train_x3 <- gridid.21.2[index3, 2:16]
+test_x3 <- gridid.21.2[-index3, 2:16]
+train_y3 <- gridid.21.2[index3, 1]
+test_y3 <- gridid.21.2[-index3, 1]
+train3 <- gridid.21.2[index3,]
+test3 <- gridid.21.2[-index3,]
+
+# train test for Grid 52
+B = nrow(gridid.52.2)
+index4 <- sample(1:B, size = B*.8, replace = F)
+train_x4 <- gridid.52.2[index4, 2:16]
+test_x4 <- gridid.52.2[-index4, 2:16]
+train_y4 <- gridid.52.2[index4, 1]
+test_y4 <- gridid.52.2[-index4, 1]
+train4 <- gridid.52.2[index4,]
+test4 <- gridid.52.2[-index4,]
+```
+
+## RF on Grid 21
+
+Let's run the RF and prediction before optimizing the RF using the same codes as before but for Grid 21 as the dataset instead.
+```{r,echo=F}
+set.seed(123)
+rf_model3 <- randomForest(VRYieldVOl~.,data = train3, xtest = test_x3,
+                     ytest=test_y3, keep.forest = TRUE)
+rf_model3
+```
+We can see that the test MSE is also quite high without any optimization.
+
+Let's look at the MSE when using all the trees to predict the train samples.
+```{r}
+pred.train3 = predict(rf_model3, train3)
+mean((pred.train3-train_y3)^2)
+```
+The MSE is smaller than the test MSE. I can't pull the exact test MSE, so the MSE use to predict the train set will be used to compare between models. 
+
+#### Finding Optimal Number of Trees for Grid 21
+
+```{r}
+trees2 <- seq(from = 200, to = 1000, by = 100)
+z <- length(trees2)
+rf.mse3 <- vector(mode = "numeric", length = z)
+G = nrow(gridid.21.2)
+for (i in 1:z) {
+  set.seed(123)
+index3 <- sample(1:G, size = G*.8, replace = F)
+train_x3 <- gridid.21.2[index3, 2:16]
+test_x3 <- gridid.21.2[-index3, 2:16]
+train_y3 <- gridid.21.2[index3, 1]
+test_y3 <- gridid.21.2[-index3, 1]
+train3 <- gridid.21.2[index3,]
+test3 <- gridid.21.2[-index3,]
+  rf_model3 <- randomForest(VRYieldVOl~.,data = train3, xtest = test_x3,
+                     ytest=test_y3, ntrees = trees2[i], keep.forest = TRUE)
+  pred.train3 = predict(rf_model3, train3)
+
+  rf.mse3 [i] <- mean((pred.train3-train_y3)^2)
+}
+optimal.ntrees2 <- trees2[which.min(rf.mse3)]
+plot(trees2, rf.mse3, type = "b", xlab = "ntrees", ylab = "MSE")
+```
+
+#### Finding Optimal m For Grid 21
+
+We will now find the optimal m using the optimal number of trees based on MSE. As we know, too large m will have high correlation and low bias.
+```{r, warning=FALSE}
+m2 <- seq(from = 4, to = 20, by = 1)
+h <- length(m2)
+rf.mse3 <- vector(mode = "numeric", length = h)
+G = nrow(gridid.21.2)
+for (i in 1:h) {
+  set.seed(123)
+index3 <- sample(1:G, size = G*.8, replace = F)
+train_x3 <- gridid.21.2[index3, 2:16]
+test_x3 <- gridid.21.2[-index3, 2:16]
+train_y3 <- gridid.21.2[index3, 1]
+test_y3 <- gridid.21.2[-index3, 1]
+train3 <- gridid.21.2[index3,]
+test3 <- gridid.21.2[-index3,]
+  rf_model3 <- randomForest(VRYieldVOl~.,data = train3, xtest = test_x3,
+                     ytest=test_y3, ntrees = optimal.ntrees2, mtry= m2 [i],
+                     keep.forest = TRUE)
+  pred.train3 = predict(rf_model3, train3)
+
+  rf.mse3 [i] <- mean((pred.train3-train_y3)^2)
+}
+optimal.m2 <- m2[which.min(rf.mse3)]
+plot(m2, rf.mse3, type = "b", xlab = "ntrees", ylab = "MSE")
+```
+
+#### Finding Optimal Tree Depth for Grid 21
+
+We will now find the optimal tree depth using the optimal number of trees and optimal m based on MSE. The smaller the node size, the deeper the tree.
+
+```{r}
+depth2 <- seq(from = 1, to = 50, by = 5)
+d <- length(depth2)
+rf.mse3 <- vector(mode = "numeric", length = d)
+for (i in 1:d) {
+  set.seed(123)
+index3 <- sample(1:G, size = G*.8, replace = F)
+train_x3 <- gridid.21.2[index3, 2:16]
+test_x3 <- gridid.21.2[-index3, 2:16]
+train_y3 <- gridid.21.2[index3, 1]
+test_y3 <- gridid.21.2[-index3, 1]
+train3 <- gridid.21.2[index3,]
+test3 <- gridid.21.2[-index3,]
+  rf_model3 <- randomForest(VRYieldVOl~.,data = train3, xtest = test_x3,
+                     ytest=test_y3, mtry = optimal.m2, nodesize = depth[i],
+                     ntree=optimal.ntrees2, keep.forest = TRUE)
+  pred.train3 = predict(rf_model3, train3)
+
+  rf.mse3 [i] <- mean((pred.train3-train_y3)^2)
+}
+optimal.depth2 <- depth2[which.min(rf.mse3)]
+plot(depth2, rf.mse3, type = "b", xlab = "Node Size", ylab = "MSE")
+```
+
+## Optimized RF on Grid 21
+
+```{r}
+n=10
+rf.mse3 <- vector(mode = "numeric", length = d)
+for (i in 1:4) {
+  set.seed(i)
+index3 <- sample(1:G, size = G*.8, replace = F)
+train_x3 <- gridid.21.2[index3, 2:16]
+test_x3 <- gridid.21.2[-index3, 2:16]
+train_y3 <- gridid.21.2[index3, 1]
+test_y3 <- gridid.21.2[-index3, 1]
+train3 <- gridid.21.2[index3,]
+test3 <- gridid.21.2[-index3,]
+  rf_model3 <- randomForest(VRYieldVOl~.,data = train3, xtest = test_x3,
+                     ytest=test_y3, mtry = optimal.m2, nodesize = optimal.depth2,
+                     ntree=optimal.ntrees2, keep.forest = TRUE)
+  pred.train3 = predict(rf_model3, train3)
+
+  rf.mse3 [i] <- mean((pred.train3-train_y3)^2)
+}
+```
+
+## Results of RF on Grid 21
+
+```{r}
+results3 = data.frame(RF_MSE = rf.mse3)
+knitr::kable(results3)
+```
+
+
+
+# Appendix 
+
+![The 20 different grids created using QGIS for the variable "GridId"](C:/Users/ddinh4/Documents/EXST 7142/EXST 7142 Final Project/Data/QGIS_Plot.png)
+
+![Each dot represents a 10ft x 10ft cell in the given field](C:/Users/ddinh4/Documents/EXST 7142/EXST 7142 Final Project/Data/VRYieldVol_StDev_Choropleth.png)
+```{r, echo=FALSE}
+sum.grid08 = describe(gridid.08)
+sum.grid09 = describe(gridid.09)
+sum.grid10 = describe(gridid.10)
+sum.grid11 = describe(gridid.11)
+sum.grid19 = describe(gridid.19)
+sum.grid20 = describe(gridid.20)
+sum.grid21 = describe(gridid.21)
+sum.grid22 = describe(gridid.22)
+sum.grid30 = describe(gridid.30)
+sum.grid31 = describe(gridid.31)
+sum.grid32 = describe(gridid.32)
+sum.grid33 = describe(gridid.33)
+sum.grid41 = describe(gridid.41)
+sum.grid42 = describe(gridid.42)
+sum.grid43 = describe(gridid.43)
+sum.grid44 = describe(gridid.44)
+sum.grid52 = describe(gridid.52)
+sum.grid53 = describe(gridid.53)
+sum.grid54 = describe(gridid.54)
+sum.grid55 = describe(gridid.55)
+knitr::kable(sum.grid08, caption = "Grid 08", digits = 2) #starts with table 2 
+knitr::kable(sum.grid09, caption = "Grid 09", digits = 2)
+knitr::kable(sum.grid10, caption = "Grid 10", digits = 2)
+knitr::kable(sum.grid11, caption = "Grid 11", digits = 2)
+knitr::kable(sum.grid19, caption = "Grid 19", digits = 2)
+knitr::kable(sum.grid20, caption = "Grid 20", digits = 2)
+knitr::kable(sum.grid21, caption = "Grid 21", digits = 2)
+knitr::kable(sum.grid22, caption = "Grid 22", digits = 2)
+knitr::kable(sum.grid30, caption = "Grid 30", digits = 2)
+knitr::kable(sum.grid31, caption = "Grid 31", digits = 2)
+knitr::kable(sum.grid32, caption = "Grid 32", digits = 2)
+knitr::kable(sum.grid33, caption = "Grid 33", digits = 2)
+knitr::kable(sum.grid41, caption = "Grid 41", digits = 2)
+knitr::kable(sum.grid42, caption = "Grid 42", digits = 2)
+knitr::kable(sum.grid43, caption = "Grid 43", digits = 2)
+knitr::kable(sum.grid44, caption = "Grid 44", digits = 2)
+knitr::kable(sum.grid52, caption = "Grid 52", digits = 2)
+knitr::kable(sum.grid53, caption = "Grid 53", digits = 2)
+knitr::kable(sum.grid54, caption = "Grid 54", digits = 2)
+knitr::kable(sum.grid55, caption = "Grid 55", digits = 2)
+```
